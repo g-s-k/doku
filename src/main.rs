@@ -41,7 +41,7 @@ impl fmt::Display for Val {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Slot {
     Solved(Val),
     Unsolved(BTreeSet<Val>),
@@ -81,17 +81,25 @@ impl Slot {
         }
     }
 
-    fn reduce_with_peer(&mut self, peer: &Slot) {
-        if let Slot::Unsolved(ref mut vals) = self {
-            if let Slot::Solved(v) = peer {
-                vals.remove(&v);
-            }
+    fn remove(&mut self, val: &Val) {
+        if let Slot::Unsolved(vals) = self {
+            vals.remove(val);
+        }
+    }
 
+    fn simplify(&mut self) {
+        if let Slot::Unsolved(vals) = self {
             if vals.len() == 1 {
-                let v = vals.iter().next().unwrap();
-                *self = Slot::Solved(*v);
+                *self = Slot::Solved(*vals.iter().next().unwrap());
             }
         }
+    }
+
+    fn reduce_with_peer(&mut self, peer: &Slot) {
+        if let Slot::Solved(v) = peer {
+            self.remove(&v);
+        }
+        self.simplify();
     }
 }
 
@@ -141,8 +149,39 @@ impl fmt::Display for Puzzle {
 impl Puzzle {
     fn solve(&mut self) {
         for row in 0..9 {
+            self.reduce_row(row);
+
             for col in 0..9 {
                 self.reduce_units(row, col);
+            }
+        }
+    }
+
+    fn reduce_row(&mut self, row: usize) {
+        let mut to_remove = BTreeSet::new();
+
+        for outer in 0..9 {
+            if let Slot::Unsolved(vals) = &self.0[row][outer] {
+                'inner: for inner in 0..9 {
+                    if outer == inner {
+                        continue 'inner;
+                    }
+
+                    if vals.len() == 2 && self.0[row][outer] == self.0[row][inner] {
+                        to_remove.extend(vals.iter().cloned().map(|v| (v, outer, inner)));
+                    }
+                }
+            }
+        }
+
+        for (entry, skip0, skip1) in to_remove {
+            'cols: for col in 0..9 {
+                if col == skip0 || col == skip1 {
+                    continue 'cols;
+                }
+
+                self.0[row][col].remove(&entry);
+                self.0[row][col].simplify();
             }
         }
     }
