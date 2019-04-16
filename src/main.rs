@@ -1,8 +1,9 @@
+use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{self, Read};
 use std::str::FromStr;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Val {
     One = 1,
     Two = 2,
@@ -40,20 +41,76 @@ impl fmt::Display for Val {
     }
 }
 
-#[derive(Debug)]
-struct Puzzle([[Option<Val>; 9]; 9]);
+#[derive(Clone, Debug)]
+enum Slot {
+    Solved(Val),
+    Unsolved(BTreeSet<Val>),
+}
+
+impl Default for Slot {
+    fn default() -> Self {
+        let mut b = BTreeSet::new();
+        b.insert(Val::One);
+        b.insert(Val::Two);
+        b.insert(Val::Three);
+        b.insert(Val::Four);
+        b.insert(Val::Five);
+        b.insert(Val::Six);
+        b.insert(Val::Seven);
+        b.insert(Val::Eight);
+        b.insert(Val::Nine);
+        Slot::Unsolved(b)
+    }
+}
+
+impl fmt::Display for Slot {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Slot::Solved(v) => write!(f, "{}", v),
+            _ => write!(f, "."),
+        }
+    }
+}
+
+impl Slot {
+    fn is_solved(&self) -> bool {
+        if let Slot::Solved(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn reduce_with_peer(&mut self, peer: &Slot) {
+        if let Slot::Unsolved(ref mut vals) = self {
+            if let Slot::Solved(v) = peer {
+                vals.remove(&v);
+            }
+
+            if vals.len() == 1 {
+                let v = vals.iter().next().unwrap();
+                *self = Slot::Solved(*v);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct Puzzle([[Slot; 9]; 9]);
 
 impl FromStr for Puzzle {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut p = Puzzle([[None; 9]; 9]);
+        let mut p = Puzzle::default();
         for (idx, c) in s.split_whitespace().enumerate() {
             if idx > 80 {
-                return Err("Too many entries provided.")
+                return Err("Too many entries provided.");
             }
 
-            p.0[idx / 9][idx % 9] = c.parse().ok();
+            if let Ok(v) = c.parse() {
+                p.0[idx / 9][idx % 9] = Slot::Solved(v);
+            }
         }
         Ok(p)
     }
@@ -71,11 +128,7 @@ impl fmt::Display for Puzzle {
                     write!(f, "| ")?;
                 }
 
-                if let Some(v) = col {
-                    write!(f, "{} ", v)?;
-                } else {
-                    write!(f, ". ")?;
-                }
+                write!(f, "{} ", col)?;
             }
 
             writeln!(f, "|")?;
@@ -85,10 +138,60 @@ impl fmt::Display for Puzzle {
     }
 }
 
+impl Puzzle {
+    fn solve(&mut self) {
+        for row in 0..9 {
+            for col in 0..9 {
+                self.reduce_units(row, col);
+            }
+        }
+    }
+
+    fn reduce_units(&mut self, row: usize, col: usize) {
+        if !self.0[row][col].is_solved() {
+            let mut vals = self.0[row][col].clone();
+            // reduce row unit
+            for u_col in 0..9 {
+                if u_col == col {
+                    continue;
+                }
+
+                vals.reduce_with_peer(&self.0[row][u_col]);
+            }
+
+            // reduce column unit
+            for u_row in 0..9 {
+                if u_row == row {
+                    continue;
+                }
+
+                vals.reduce_with_peer(&self.0[u_row][col]);
+            }
+
+            // reduce box unit
+            let (last_r, last_c) = ((row / 3) * 3, (col / 3) * 3);
+            for u_row in 0..3 {
+                for u_col in 0..3 {
+                    let (c_row, c_col) = (last_r + u_row, last_c + u_col);
+                    if c_row == row && c_col == col {
+                        continue;
+                    }
+
+                    vals.reduce_with_peer(&self.0[c_row][c_col]);
+                }
+            }
+
+            self.0[row][col] = vals;
+        }
+    }
+}
+
 fn main() -> io::Result<()> {
-    let mut bufr = String::with_capacity(256);
+    let mut bufr = String::with_capacity(512);
     io::stdin().read_to_string(&mut bufr)?;
-    let puzzl = bufr.parse::<Puzzle>().unwrap();
+    let mut puzzl = bufr.parse::<Puzzle>().unwrap();
     println!("Start:\n{}", puzzl);
+    puzzl.solve();
+    println!("\nEnd:\n{}", puzzl);
     Ok(())
 }
