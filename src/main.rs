@@ -1,7 +1,10 @@
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{self, Read};
 use std::str::FromStr;
+
+const MAX_ITER: usize = 25;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Val {
@@ -41,14 +44,8 @@ impl fmt::Display for Val {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Slot {
-    Solved(Val),
-    Unsolved(BTreeSet<Val>),
-}
-
-impl Default for Slot {
-    fn default() -> Self {
+impl Val {
+    fn all() -> BTreeSet<Self> {
         let mut b = BTreeSet::new();
         b.insert(Val::One);
         b.insert(Val::Two);
@@ -59,7 +56,19 @@ impl Default for Slot {
         b.insert(Val::Seven);
         b.insert(Val::Eight);
         b.insert(Val::Nine);
-        Slot::Unsolved(b)
+        b
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Slot {
+    Solved(Val),
+    Unsolved(BTreeSet<Val>),
+}
+
+impl Default for Slot {
+    fn default() -> Self {
+        Slot::Unsolved(Val::all())
     }
 }
 
@@ -73,17 +82,49 @@ impl fmt::Display for Slot {
 }
 
 impl Slot {
-    fn is_solved(&self) -> bool {
-        if let Slot::Solved(_) = self {
-            true
+    fn len(&self) -> usize {
+        if let Slot::Unsolved(vals) = self {
+            vals.len()
         } else {
-            false
+            1
+        }
+    }
+
+    fn difference(&self, other: &Self) -> BTreeSet<Val> {
+        match (self, other) {
+            (Slot::Unsolved(s_vals), Slot::Unsolved(o_vals)) => {
+                s_vals.difference(o_vals).cloned().collect()
+            }
+            (Slot::Unsolved(vals), Slot::Solved(val)) => {
+                let mut out = vals.clone();
+                out.remove(val);
+                out
+            }
+            _ => BTreeSet::new(),
+        }
+    }
+
+    fn union(&self, other: &Self) -> BTreeSet<Val> {
+        match (self, other) {
+            (Slot::Unsolved(s_vals), Slot::Unsolved(o_vals)) => {
+                s_vals.union(o_vals).cloned().collect()
+            }
+            (Slot::Unsolved(vals), _) | (_, Slot::Unsolved(vals)) => vals.clone(),
+            _ => BTreeSet::new(),
         }
     }
 
     fn remove(&mut self, val: &Val) {
         if let Slot::Unsolved(vals) = self {
             vals.remove(val);
+        }
+    }
+
+    fn remove_all(&mut self, peer: &Self) {
+        if let Slot::Unsolved(vals) = peer {
+            for val in vals {
+                self.remove(val);
+            }
         }
     }
 
@@ -95,11 +136,79 @@ impl Slot {
         }
     }
 
-    fn reduce_with_peer(&mut self, peer: &Slot) {
+    fn replace_with(&mut self, val: Val) {
+        *self = Slot::Solved(val);
+    }
+
+    fn reduce_with_peer(&mut self, peer: &Self) {
         if let Slot::Solved(v) = peer {
             self.remove(&v);
         }
-        self.simplify();
+    }
+}
+
+fn reduce_unit(unit: &[RefCell<&mut Slot>]) {
+    let scrub_unit = |union: BTreeSet<Val>, skips: &[usize]| {
+        let to_remove = Slot::Unsolved(union);
+        for idx in (0..unit.len()).filter(|i| !skips.contains(i)) {
+            let mut current = unit[idx].borrow_mut();
+            current.remove_all(&to_remove);
+            current.simplify();
+        }
+    };
+
+    for first in 0..unit.len() {
+        // find values which uniquely belong to this space
+        let mut uniqs = Val::all();
+        {
+            let o = unit[first].borrow();
+            for second in (0..unit.len()).filter(|i| *i != first) {
+                let i = unit[second].borrow();
+                let diff = o.difference(&i);
+                uniqs = uniqs.intersection(&diff).cloned().collect();
+            }
+        }
+        if uniqs.len() == 1 {
+            unit[first]
+                .borrow_mut()
+                .replace_with(uniqs.into_iter().next().unwrap());
+        }
+
+        for second in (0..unit.len()).filter(|i| *i != first) {
+            // remove definitive peers and try to simplify
+            let i = unit[second].borrow();
+            {
+                let mut o = unit[first].borrow_mut();
+                o.reduce_with_peer(&i);
+                o.simplify();
+            }
+
+            // check for uniqueness of a given possibility
+
+            // // check for naked pairs
+            // let o = unit[first].borrow();
+            // if o.len() == 2 && *o == *i {
+            //     scrub_unit(o.union(&i), &[first, second]);
+            // }
+
+            // // check for naked triples
+            // for third in (0..unit.len()).filter(|i| ![first, second].contains(i)) {
+            //     let t = unit[third].borrow();
+            //     let u = Slot::Unsolved(o.union(&i)).union(&t);
+            //     if u.len() == 3 {
+            //         scrub_unit(u, &[first, second, third]);
+            //     }
+
+            //     // and naked quads
+            //     for fourth in (0..unit.len()).filter(|i| ![first, second, third].contains(i)) {
+            //         let f = unit[fourth].borrow();
+            //         let u = Slot::Unsolved(Slot::Unsolved(o.union(&i)).union(&t)).union(&f);
+            //         if u.len() == 4 {
+            //             scrub_unit(u, &[first, second, third, fourth]);
+            //         }
+            //     }
+            // }
+        }
     }
 }
 
@@ -147,81 +256,53 @@ impl fmt::Display for Puzzle {
 }
 
 impl Puzzle {
+    fn is_solved(&self) -> bool {
+        self.0
+            .iter()
+            .flat_map(|row| row.iter())
+            .all(|c| c.len() == 1)
+    }
+
     fn solve(&mut self) {
-        for row in 0..9 {
-            self.reduce_row(row);
-
-            for col in 0..9 {
-                self.reduce_units(row, col);
-            }
-        }
-    }
-
-    fn reduce_row(&mut self, row: usize) {
-        let mut to_remove = BTreeSet::new();
-
-        for outer in 0..9 {
-            if let Slot::Unsolved(vals) = &self.0[row][outer] {
-                'inner: for inner in 0..9 {
-                    if outer == inner {
-                        continue 'inner;
-                    }
-
-                    if vals.len() == 2 && self.0[row][outer] == self.0[row][inner] {
-                        to_remove.extend(vals.iter().cloned().map(|v| (v, outer, inner)));
-                    }
-                }
-            }
+        for cell in self.0.iter_mut().flat_map(|row| row.iter_mut()) {
+            cell.simplify();
         }
 
-        for (entry, skip0, skip1) in to_remove {
-            'cols: for col in 0..9 {
-                if col == skip0 || col == skip1 {
-                    continue 'cols;
-                }
+        for iter_num in 0..MAX_ITER {
+            for idx in 0..9 {
+                // reduce row
+                let row_v = self.0[idx].iter_mut().map(RefCell::new).collect::<Vec<_>>();
+                reduce_unit(&row_v);
 
-                self.0[row][col].remove(&entry);
-                self.0[row][col].simplify();
+                // reduce column
+                let col_v = self
+                    .0
+                    .iter_mut()
+                    .flat_map(|r| r.iter_mut().skip(idx).take(1))
+                    .map(RefCell::new)
+                    .collect::<Vec<_>>();
+                reduce_unit(&col_v);
+
+                // reduce box
+                let (r_start, c_start) = ((idx / 3) * 3, (idx % 3) * 3);
+                let box_v = self
+                    .0
+                    .iter_mut()
+                    .skip(r_start)
+                    .take(3)
+                    .flat_map(|r| r.iter_mut().skip(c_start).take(3))
+                    .map(RefCell::new)
+                    .collect::<Vec<_>>();
+                reduce_unit(&box_v);
+            }
+
+            if self.is_solved() {
+                eprintln!("Solved in {} iterations!", iter_num);
+                return;
             }
         }
-    }
 
-    fn reduce_units(&mut self, row: usize, col: usize) {
-        if !self.0[row][col].is_solved() {
-            let mut vals = self.0[row][col].clone();
-            // reduce row unit
-            for u_col in 0..9 {
-                if u_col == col {
-                    continue;
-                }
-
-                vals.reduce_with_peer(&self.0[row][u_col]);
-            }
-
-            // reduce column unit
-            for u_row in 0..9 {
-                if u_row == row {
-                    continue;
-                }
-
-                vals.reduce_with_peer(&self.0[u_row][col]);
-            }
-
-            // reduce box unit
-            let (last_r, last_c) = ((row / 3) * 3, (col / 3) * 3);
-            for u_row in 0..3 {
-                for u_col in 0..3 {
-                    let (c_row, c_col) = (last_r + u_row, last_c + u_col);
-                    if c_row == row && c_col == col {
-                        continue;
-                    }
-
-                    vals.reduce_with_peer(&self.0[c_row][c_col]);
-                }
-            }
-
-            self.0[row][col] = vals;
-        }
+        eprintln!("Gave up after {} iterations.", MAX_ITER);
     }
 }
 
