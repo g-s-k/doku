@@ -190,13 +190,11 @@ fn reduce_unit(unit: &[RefCell<&mut Slot>]) {
                 o.simplify();
             }
 
-            // check for uniqueness of a given possibility
-
-            // // check for naked pairs
-            // let o = unit[first].borrow();
-            // if o.len() == 2 && *o == *i {
-            //     scrub_unit(o.union(&i), &[first, second]);
-            // }
+            // check for naked pairs
+            let o = unit[first].borrow();
+            if o.len() == 2 && *o == *i {
+                scrub_unit(o.union(&i), &[first, second]);
+            }
 
             // // check for naked triples
             // for third in (0..unit.len()).filter(|i| ![first, second].contains(i)) {
