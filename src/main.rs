@@ -4,7 +4,7 @@ use std::fmt;
 use std::io::{self, Read};
 use std::str::FromStr;
 
-const MAX_ITER: usize = 25;
+const MAX_ITER: usize = 50;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Val {
@@ -154,7 +154,7 @@ impl Slot {
     }
 }
 
-fn reduce_unit(unit: &[RefCell<&mut Slot>]) {
+fn reduce_unit(unit: &[RefCell<&mut Slot>], opt_level: usize) {
     let scrub_unit = |union: BTreeSet<Val>, skips: &[usize]| {
         let to_remove = Slot::Unsolved(union);
         for idx in (0..unit.len()).filter(|i| !skips.contains(i)) {
@@ -190,29 +190,38 @@ fn reduce_unit(unit: &[RefCell<&mut Slot>]) {
                 o.simplify();
             }
 
-            // check for naked pairs
-            let o = unit[first].borrow();
-            if o.len() == 2 && *o == *i {
-                scrub_unit(o.union(&i), &[first, second]);
+            if opt_level > 0 {
+                // check for naked pairs
+                let o = unit[first].borrow();
+                if o.len() == 2 && *o == *i {
+                    scrub_unit(o.union(&i), &[first, second]);
+                }
+
+                if opt_level > 1 {
+                    // check for naked triples
+                    for third in (0..unit.len()).filter(|i| ![first, second].contains(i)) {
+                        let t = unit[third].borrow();
+                        let u = Slot::Unsolved(o.union(&i)).union(&t);
+                        if u.len() == 3 {
+                            scrub_unit(u, &[first, second, third]);
+                        }
+
+                        if opt_level > 2 {
+                            // and naked quads
+                            for fourth in
+                                (0..unit.len()).filter(|i| ![first, second, third].contains(i))
+                            {
+                                let f = unit[fourth].borrow();
+                                let u =
+                                    Slot::Unsolved(Slot::Unsolved(o.union(&i)).union(&t)).union(&f);
+                                if u.len() == 4 {
+                                    scrub_unit(u, &[first, second, third, fourth]);
+                                }
+                            }
+                        }
+                    }
+                }
             }
-
-            // // check for naked triples
-            // for third in (0..unit.len()).filter(|i| ![first, second].contains(i)) {
-            //     let t = unit[third].borrow();
-            //     let u = Slot::Unsolved(o.union(&i)).union(&t);
-            //     if u.len() == 3 {
-            //         scrub_unit(u, &[first, second, third]);
-            //     }
-
-            //     // and naked quads
-            //     for fourth in (0..unit.len()).filter(|i| ![first, second, third].contains(i)) {
-            //         let f = unit[fourth].borrow();
-            //         let u = Slot::Unsolved(Slot::Unsolved(o.union(&i)).union(&t)).union(&f);
-            //         if u.len() == 4 {
-            //             scrub_unit(u, &[first, second, third, fourth]);
-            //         }
-            //     }
-            // }
         }
     }
 }
@@ -274,10 +283,11 @@ impl Puzzle {
         }
 
         for iter_num in 0..MAX_ITER {
+            let opt_level = iter_num / 5;
             for idx in 0..9 {
                 // reduce row
                 let row_v = self.0[idx].iter_mut().map(RefCell::new).collect::<Vec<_>>();
-                reduce_unit(&row_v);
+                reduce_unit(&row_v, opt_level);
 
                 // reduce column
                 let col_v = self
@@ -286,7 +296,7 @@ impl Puzzle {
                     .flat_map(|r| r.iter_mut().skip(idx).take(1))
                     .map(RefCell::new)
                     .collect::<Vec<_>>();
-                reduce_unit(&col_v);
+                reduce_unit(&col_v, opt_level);
 
                 // reduce box
                 let (r_start, c_start) = ((idx / 3) * 3, (idx % 3) * 3);
@@ -298,7 +308,7 @@ impl Puzzle {
                     .flat_map(|r| r.iter_mut().skip(c_start).take(3))
                     .map(RefCell::new)
                     .collect::<Vec<_>>();
-                reduce_unit(&box_v);
+                reduce_unit(&box_v, opt_level);
 
                 // reduce by candidate lines
                 let mut unsolved = Val::all();
