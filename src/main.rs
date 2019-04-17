@@ -277,6 +277,51 @@ impl Puzzle {
             .all(|c| c.len() == 1)
     }
 
+    fn reduce_candidate_lines(&mut self, r_start: usize, c_start: usize) {
+        let mut unsolved = Val::all();
+        for cell in self
+            .0
+            .iter()
+            .skip(r_start)
+            .take(3)
+            .flat_map(|r| r.iter().skip(c_start).take(3))
+        {
+            if let Slot::Solved(v) = cell {
+                unsolved.remove(v);
+            }
+        }
+
+        for val in unsolved {
+            let (mut rows, mut cols) = (BTreeSet::new(), BTreeSet::new());
+
+            for row in r_start..(r_start + 3) {
+                for col in c_start..(c_start + 3) {
+                    if self.0[row][col].contains(&val) {
+                        rows.insert(row);
+                        cols.insert(col);
+                    }
+                }
+            }
+
+            match (rows.len(), cols.len()) {
+                (1, 1) => (), // solved space
+                (1, _) => {
+                    let row_to_purge = rows.into_iter().next().unwrap();
+                    for col in (0..c_start).chain((c_start + 3)..9) {
+                        self.0[row_to_purge][col].remove(&val);
+                    }
+                }
+                (_, 1) => {
+                    let col_to_purge = cols.into_iter().next().unwrap();
+                    for row in (0..r_start).chain((r_start + 3)..9) {
+                        self.0[row][col_to_purge].remove(&val);
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+
     fn solve(&mut self) {
         for cell in self.0.iter_mut().flat_map(|row| row.iter_mut()) {
             cell.simplify();
@@ -311,48 +356,7 @@ impl Puzzle {
                 reduce_unit(&box_v, opt_level);
 
                 // reduce by candidate lines
-                let mut unsolved = Val::all();
-                for cell in self
-                    .0
-                    .iter()
-                    .skip(r_start)
-                    .take(3)
-                    .flat_map(|r| r.iter().skip(c_start).take(3))
-                {
-                    if let Slot::Solved(v) = cell {
-                        unsolved.remove(v);
-                    }
-                }
-
-                for val in unsolved {
-                    let (mut rows, mut cols) = (BTreeSet::new(), BTreeSet::new());
-
-                    for row in r_start..(r_start + 3) {
-                        for col in c_start..(c_start + 3) {
-                            if self.0[row][col].contains(&val) {
-                                rows.insert(row);
-                                cols.insert(col);
-                            }
-                        }
-                    }
-
-                    match (rows.len(), cols.len()) {
-                        (1, 1) => (), // solved space
-                        (1, _) => {
-                            let row_to_purge = rows.into_iter().next().unwrap();
-                            for col in (0..c_start).chain((c_start + 3)..9) {
-                                self.0[row_to_purge][col].remove(&val);
-                            }
-                        }
-                        (_, 1) => {
-                            let col_to_purge = cols.into_iter().next().unwrap();
-                            for row in (0..r_start).chain((r_start + 3)..9) {
-                                self.0[row][col_to_purge].remove(&val);
-                            }
-                        }
-                        _ => (),
-                    }
-                }
+                self.reduce_candidate_lines(r_start, c_start);
             }
 
             if self.is_solved() {
