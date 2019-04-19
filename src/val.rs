@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 
@@ -33,20 +34,28 @@ impl FromStr for Val {
     }
 }
 
+impl TryFrom<u32> for Val {
+    type Error = &'static str;
+
+    fn try_from(v: u32) -> Result<Self, Self::Error> {
+        match v {
+            1 => Ok(Val::One),
+            2 => Ok(Val::Two),
+            3 => Ok(Val::Three),
+            4 => Ok(Val::Four),
+            5 => Ok(Val::Five),
+            6 => Ok(Val::Six),
+            7 => Ok(Val::Seven),
+            8 => Ok(Val::Eight),
+            9 => Ok(Val::Nine),
+            _ => Err("Not a valid Sudoku number."),
+        }
+    }
+}
+
 impl Val {
-    pub fn all() -> impl Iterator<Item = Self> {
-        vec![
-            Val::One,
-            Val::Two,
-            Val::Three,
-            Val::Four,
-            Val::Five,
-            Val::Six,
-            Val::Seven,
-            Val::Eight,
-            Val::Nine,
-        ]
-        .into_iter()
+    pub(crate) fn all() -> impl Iterator<Item = Self> {
+        (1..=9).map(Self::try_from).filter_map(Result::ok)
     }
 }
 

@@ -10,7 +10,7 @@ mod val;
 
 use self::cell::List;
 use self::math::*;
-use self::val::Val;
+pub use self::val::Val;
 
 pub const MAX_ITER: usize = 9;
 
@@ -67,6 +67,10 @@ impl fmt::Display for Puzzle {
 }
 
 impl Puzzle {
+    pub fn set(&mut self, (row, col): (usize, usize), val: Option<Val>) {
+        self.0[row * 9 + col].borrow_mut().val = val.into();
+    }
+
     pub fn solved_count(&self) -> usize {
         self.0
             .iter()
