@@ -73,7 +73,7 @@ impl fmt::Display for Puzzle {
 impl Puzzle {
     /// Set the value of a cell at a given `(row, column)` index.
     pub fn set(&mut self, (row, col): (usize, usize), val: Option<Val>) {
-        self.0[row * 9 + col].borrow_mut().val = val.into();
+        self.0[row * 9 + col].borrow_mut().val = val;
     }
 
     /// Number of cells presently filled in.
