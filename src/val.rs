@@ -2,6 +2,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 
+/// A legal value for a Sudoku cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Val {
     One = 1,

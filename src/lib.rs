@@ -1,3 +1,5 @@
+//! Print and solve Sudoku puzzles.
+
 #![warn(clippy::pedantic)]
 
 use std::collections::BTreeSet;
@@ -12,8 +14,10 @@ use self::cell::List;
 use self::math::*;
 pub use self::val::Val;
 
+/// The maximum number of times to try solving a puzzle before giving up.
 pub const MAX_ITER: usize = 9;
 
+/// An entire Sudoku puzzle.
 #[derive(Debug)]
 pub struct Puzzle(List);
 
@@ -67,10 +71,12 @@ impl fmt::Display for Puzzle {
 }
 
 impl Puzzle {
+    /// Set the value of a cell at a given `(row, column)` index.
     pub fn set(&mut self, (row, col): (usize, usize), val: Option<Val>) {
         self.0[row * 9 + col].borrow_mut().val = val.into();
     }
 
+    /// Number of cells presently filled in.
     pub fn solved_count(&self) -> usize {
         self.0
             .iter()
@@ -99,8 +105,16 @@ impl Puzzle {
             .collect()
     }
 
+    /// Attempt to find a solution to the puzzle.
+    ///
+    /// If a solution is found, `Ok(n_iterations)` is returned, where `n_iterations`
+    /// is the number of iterations it took to complete the solution. If the [maximum
+    /// number of iterations](constant.MAX_ITER.html) is reached without finding
+    /// a solution, `Err(n_solved)` is returned, where `n_solved` is the number
+    /// of cells that were filled in during the attempt.
     pub fn try_solve(&mut self) -> Result<usize, usize> {
-        let mut num_solved = self.solved_count();
+        let orig_solved = self.solved_count();
+        let mut num_solved = orig_solved;
 
         for iter_num in 0..MAX_ITER {
             self.promote();
@@ -199,6 +213,6 @@ impl Puzzle {
             }
         }
 
-        Err(num_solved)
+        Err(num_solved - orig_solved)
     }
 }
