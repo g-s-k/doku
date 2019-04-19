@@ -22,13 +22,13 @@ impl FromStr for Val {
         match s.to_ascii_lowercase().as_ref() {
             "1" | "a" | "one" => Ok(Val::One),
             "2" | "b" | "two" => Ok(Val::Two),
-            "3" | "c" | "Three" => Ok(Val::Three),
-            "4" | "d" | "Four" => Ok(Val::Four),
-            "5" | "e" | "Five" => Ok(Val::Five),
-            "6" | "f" | "Six" => Ok(Val::Six),
-            "7" | "g" | "Seven" => Ok(Val::Seven),
-            "8" | "h" | "Eight" => Ok(Val::Eight),
-            "9" | "i" | "Nine" => Ok(Val::Nine),
+            "3" | "c" | "three" => Ok(Val::Three),
+            "4" | "d" | "four" => Ok(Val::Four),
+            "5" | "e" | "five" => Ok(Val::Five),
+            "6" | "f" | "six" => Ok(Val::Six),
+            "7" | "g" | "seven" => Ok(Val::Seven),
+            "8" | "h" | "eight" => Ok(Val::Eight),
+            "9" | "i" | "nine" => Ok(Val::Nine),
             _ => Err("Could not parse value from string"),
         }
     }
