@@ -6,9 +6,9 @@ use std::rc::Rc;
 
 use super::{math::*, Val};
 
-pub type CellList = Vec<Rc<RefCell<Cell>>>;
+pub type List = Vec<Rc<RefCell<Cell>>>;
 
-pub fn new_cell_list() -> CellList {
+pub fn new_cell_list() -> List {
     let mut v = Vec::new();
 
     for _ in 0..81 {
@@ -38,9 +38,9 @@ pub fn new_cell_list() -> CellList {
 pub struct Cell {
     pub val: Option<Val>,
     pub not: BTreeSet<Val>,
-    row: CellList,
-    col: CellList,
-    r#box: CellList,
+    row: List,
+    col: List,
+    r#box: List,
 }
 
 impl fmt::Debug for Cell {

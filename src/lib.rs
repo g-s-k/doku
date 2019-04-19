@@ -8,14 +8,14 @@ mod cell;
 mod math;
 mod val;
 
-use self::cell::CellList;
+use self::cell::List;
 use self::math::*;
 use self::val::Val;
 
 pub const MAX_ITER: usize = 9;
 
 #[derive(Debug)]
-pub struct Puzzle(CellList);
+pub struct Puzzle(List);
 
 impl Default for Puzzle {
     fn default() -> Self {
