@@ -17,6 +17,37 @@ pub use self::val::Val;
 /// The maximum number of times to try solving a puzzle before giving up.
 pub const MAX_ITER: usize = 9;
 
+fn uniq_by_unit<'a, I>(i: I, f: fn(usize) -> usize) -> bool
+where
+    I: IntoIterator<Item = &'a usize>,
+{
+    i.into_iter().cloned().map(f).collect::<BTreeSet<_>>().len() == 1
+}
+
+/// A type that can represent an index into a [`Puzzle`](struct.Puzzle.html).
+pub trait PuzzleIndex {
+    /// Compute a row-major index into the underlying array of cells.
+    fn as_puzzle_index(&self) -> usize;
+}
+
+impl PuzzleIndex for usize {
+    fn as_puzzle_index(&self) -> usize {
+        *self
+    }
+}
+
+impl PuzzleIndex for (usize, usize) {
+    fn as_puzzle_index(&self) -> usize {
+        self.0 * 9 + self.1
+    }
+}
+
+impl PuzzleIndex for (Val, Val) {
+    fn as_puzzle_index(&self) -> usize {
+        self.0 as usize * 9 + self.1 as usize
+    }
+}
+
 /// An entire Sudoku puzzle.
 #[derive(Debug)]
 pub struct Puzzle(List);
@@ -72,8 +103,12 @@ impl fmt::Display for Puzzle {
 
 impl Puzzle {
     /// Set the value of a cell at a given `(row, column)` index.
-    pub fn set(&mut self, (row, col): (usize, usize), val: Option<Val>) {
-        self.0[row * 9 + col].borrow_mut().val = val;
+    pub fn set<T: PuzzleIndex>(&mut self, index: T, val: Option<Val>) {
+        self.0[index.as_puzzle_index()].borrow_mut().val = val;
+    }
+
+    pub fn set_not<T: PuzzleIndex>(&mut self, index: T, val: Val) {
+        self.0[index.as_puzzle_index()].borrow_mut().not.insert(val);
     }
 
     /// Number of cells presently filled in.
@@ -127,17 +162,10 @@ impl Puzzle {
                             self.0[row_p[0]].borrow_mut().val = Some(val);
                         }
                         2 | 3 => {
-                            if row_p
-                                .iter()
-                                .cloned()
-                                .map(get_box_num)
-                                .collect::<BTreeSet<_>>()
-                                .len()
-                                == 1
-                            {
+                            if uniq_by_unit(&row_p, get_box_num) {
                                 for inner_idx in idx_to_box(row_p[0]).filter(|i| !row_p.contains(i))
                                 {
-                                    self.0[inner_idx].borrow_mut().not.insert(val);
+                                    self.set_not(inner_idx, val)
                                 }
                             }
                         }
@@ -150,17 +178,10 @@ impl Puzzle {
                             self.0[col_p[0]].borrow_mut().val = Some(val);
                         }
                         2 | 3 => {
-                            if col_p
-                                .iter()
-                                .cloned()
-                                .map(get_box_num)
-                                .collect::<BTreeSet<_>>()
-                                .len()
-                                == 1
-                            {
+                            if uniq_by_unit(&col_p, get_box_num) {
                                 for inner_idx in idx_to_box(col_p[0]).filter(|i| !col_p.contains(i))
                                 {
-                                    self.0[inner_idx].borrow_mut().not.insert(val);
+                                    self.set_not(inner_idx, val)
                                 }
                             }
                         }
@@ -173,29 +194,15 @@ impl Puzzle {
                             self.0[box_p[0]].borrow_mut().val = Some(val);
                         }
                         2 | 3 => {
-                            if box_p
-                                .iter()
-                                .cloned()
-                                .map(get_row_num)
-                                .collect::<BTreeSet<_>>()
-                                .len()
-                                == 1
-                            {
+                            if uniq_by_unit(&box_p, get_row_num) {
                                 for inner_idx in idx_to_row(box_p[0]).filter(|i| !box_p.contains(i))
                                 {
-                                    self.0[inner_idx].borrow_mut().not.insert(val);
+                                    self.set_not(inner_idx, val)
                                 }
-                            } else if box_p
-                                .iter()
-                                .cloned()
-                                .map(get_col_num)
-                                .collect::<BTreeSet<_>>()
-                                .len()
-                                == 1
-                            {
+                            } else if uniq_by_unit(&box_p, get_col_num) {
                                 for inner_idx in idx_to_col(box_p[0]).filter(|i| !box_p.contains(i))
                                 {
-                                    self.0[inner_idx].borrow_mut().not.insert(val);
+                                    self.set_not(inner_idx, val)
                                 }
                             }
                         }
