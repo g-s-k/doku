@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::fmt;
+use std::iter;
 use std::rc::Rc;
 
 use super::{math::*, Val};
@@ -64,22 +65,11 @@ impl Cell {
     }
 
     pub fn possible_values(&self) -> BTreeSet<Val> {
-        let mut s = BTreeSet::new();
-
         if let Some(v) = self.val {
-            s.insert(v);
-            return s;
+            return iter::once(v).collect();
         }
 
-        s.insert(Val::One);
-        s.insert(Val::Two);
-        s.insert(Val::Three);
-        s.insert(Val::Four);
-        s.insert(Val::Five);
-        s.insert(Val::Six);
-        s.insert(Val::Seven);
-        s.insert(Val::Eight);
-        s.insert(Val::Nine);
+        let mut s = Val::all().collect::<BTreeSet<_>>();
 
         for val in &self.not {
             s.remove(val);
