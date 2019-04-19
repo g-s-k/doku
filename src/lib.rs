@@ -30,6 +30,12 @@ pub trait PuzzleIndex {
     fn as_puzzle_index(&self) -> usize;
 }
 
+impl PuzzleIndex for &usize {
+    fn as_puzzle_index(&self) -> usize {
+        **self
+    }
+}
+
 impl PuzzleIndex for usize {
     fn as_puzzle_index(&self) -> usize {
         *self
@@ -156,54 +162,36 @@ impl Puzzle {
 
             for val in Val::all() {
                 for unit in 0..9 {
-                    let row_p = self.candidates(row_num(unit), val);
-                    match row_p.len() {
-                        1 => {
-                            self.0[row_p[0]].borrow_mut().val = Some(val);
-                        }
-                        2 | 3 => {
-                            if uniq_by_unit(&row_p, get_box_num) {
-                                for inner_idx in idx_to_box(row_p[0]).filter(|i| !row_p.contains(i))
-                                {
-                                    self.set_not(inner_idx, val)
-                                }
+                    match self.candidates(row_num(unit), val).as_slice() {
+                        [idx] => self.set(idx, Some(val)),
+                        idxes if uniq_by_unit(idxes, get_box_num) => {
+                            for inner_idx in idx_to_box(idxes[0]).filter(|i| !idxes.contains(i)) {
+                                self.set_not(inner_idx, val)
                             }
                         }
                         _ => (),
                     }
 
-                    let col_p = self.candidates(col_num(unit), val);
-                    match col_p.len() {
-                        1 => {
-                            self.0[col_p[0]].borrow_mut().val = Some(val);
-                        }
-                        2 | 3 => {
-                            if uniq_by_unit(&col_p, get_box_num) {
-                                for inner_idx in idx_to_box(col_p[0]).filter(|i| !col_p.contains(i))
-                                {
-                                    self.set_not(inner_idx, val)
-                                }
+                    match self.candidates(col_num(unit), val).as_slice() {
+                        [idx] => self.set(idx, Some(val)),
+                        idxes if uniq_by_unit(idxes, get_box_num) => {
+                            for inner_idx in idx_to_box(idxes[0]).filter(|i| !idxes.contains(i)) {
+                                self.set_not(inner_idx, val)
                             }
                         }
                         _ => (),
                     }
 
-                    let box_p = self.candidates(box_num(unit), val);
-                    match box_p.len() {
-                        1 => {
-                            self.0[box_p[0]].borrow_mut().val = Some(val);
+                    match self.candidates(box_num(unit), val).as_slice() {
+                        [idx] => self.set(idx, Some(val)),
+                        idxes if uniq_by_unit(idxes, get_row_num) => {
+                            for inner_idx in idx_to_row(idxes[0]).filter(|i| !idxes.contains(i)) {
+                                self.set_not(inner_idx, val)
+                            }
                         }
-                        2 | 3 => {
-                            if uniq_by_unit(&box_p, get_row_num) {
-                                for inner_idx in idx_to_row(box_p[0]).filter(|i| !box_p.contains(i))
-                                {
-                                    self.set_not(inner_idx, val)
-                                }
-                            } else if uniq_by_unit(&box_p, get_col_num) {
-                                for inner_idx in idx_to_col(box_p[0]).filter(|i| !box_p.contains(i))
-                                {
-                                    self.set_not(inner_idx, val)
-                                }
+                        idxes if uniq_by_unit(idxes, get_col_num) => {
+                            for inner_idx in idx_to_col(idxes[0]).filter(|i| !idxes.contains(i)) {
+                                self.set_not(inner_idx, val)
                             }
                         }
                         _ => (),
