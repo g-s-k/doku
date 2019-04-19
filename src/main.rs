@@ -16,7 +16,7 @@ fn main() {
     match puzzl.try_solve() {
         Ok(iters) => eprintln!("Solved it in {} iterations.", iters),
         Err(count) => eprintln!(
-            "Couldn't solve it in {} iterations. Only {} cells are solved.",
+            "Couldn't solve it in {} iterations. Only {} cells were solved.",
             MAX_ITER, count
         ),
     }
