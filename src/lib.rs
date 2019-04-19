@@ -154,6 +154,13 @@ impl Puzzle {
     /// a solution, `Err(n_solved)` is returned, where `n_solved` is the number
     /// of cells that were filled in during the attempt.
     pub fn try_solve(&mut self) -> Result<usize, usize> {
+        fn idx_exclude<'a, I>(idxes: Vec<usize>, f: fn(usize) -> I) -> impl Iterator<Item = usize>
+        where
+            I: Iterator<Item = usize>,
+        {
+            f(idxes[0]).filter(move |i| !idxes.contains(i))
+        }
+
         let orig_solved = self.solved_count();
         let mut num_solved = orig_solved;
 
@@ -165,7 +172,7 @@ impl Puzzle {
                     match self.candidates(row_num(unit), val).as_slice() {
                         [idx] => self.set(idx, Some(val)),
                         idxes if uniq_by_unit(idxes, get_box_num) => {
-                            for inner_idx in idx_to_box(idxes[0]).filter(|i| !idxes.contains(i)) {
+                            for inner_idx in idx_exclude(idxes.to_vec(), idx_to_box) {
                                 self.set_not(inner_idx, val)
                             }
                         }
@@ -175,7 +182,7 @@ impl Puzzle {
                     match self.candidates(col_num(unit), val).as_slice() {
                         [idx] => self.set(idx, Some(val)),
                         idxes if uniq_by_unit(idxes, get_box_num) => {
-                            for inner_idx in idx_to_box(idxes[0]).filter(|i| !idxes.contains(i)) {
+                            for inner_idx in idx_exclude(idxes.to_vec(), idx_to_box) {
                                 self.set_not(inner_idx, val)
                             }
                         }
@@ -185,12 +192,12 @@ impl Puzzle {
                     match self.candidates(box_num(unit), val).as_slice() {
                         [idx] => self.set(idx, Some(val)),
                         idxes if uniq_by_unit(idxes, get_row_num) => {
-                            for inner_idx in idx_to_row(idxes[0]).filter(|i| !idxes.contains(i)) {
+                            for inner_idx in idx_exclude(idxes.to_vec(), idx_to_row) {
                                 self.set_not(inner_idx, val)
                             }
                         }
                         idxes if uniq_by_unit(idxes, get_col_num) => {
-                            for inner_idx in idx_to_col(idxes[0]).filter(|i| !idxes.contains(i)) {
+                            for inner_idx in idx_exclude(idxes.to_vec(), idx_to_col) {
                                 self.set_not(inner_idx, val)
                             }
                         }
