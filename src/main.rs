@@ -2,9 +2,62 @@ use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{self, Read};
+use std::rc::Rc;
 use std::str::FromStr;
 
-const MAX_ITER: usize = 50;
+const MAX_ITER: usize = 9;
+
+fn get_row_num(idx: usize) -> usize {
+    idx / 9
+}
+
+fn get_col_num(idx: usize) -> usize {
+    idx % 9
+}
+
+fn get_box_num(idx: usize) -> usize {
+    let box_row = idx / 27 * 3;
+    let box_col = idx % 9 / 3;
+    box_row + box_col
+}
+
+fn idx_to_row(idx: usize) -> impl Iterator<Item = usize> {
+    let col_num = get_col_num(idx);
+    (0..col_num)
+        .chain(col_num + 1..9)
+        .map(move |i| get_row_num(idx) * 9 + i)
+}
+
+fn idx_to_col(idx: usize) -> impl Iterator<Item = usize> {
+    let row_num = get_row_num(idx);
+    (0..row_num)
+        .chain(row_num + 1..9)
+        .map(move |i| i * 9 + get_col_num(idx))
+}
+
+fn idx_to_box(idx: usize) -> impl Iterator<Item = usize> {
+    box_num(get_box_num(idx)).filter(move |i| *i != idx)
+}
+
+fn row_num(num: usize) -> impl Iterator<Item = usize> {
+    (num * 9..).take(9)
+}
+
+fn col_num(num: usize) -> impl Iterator<Item = usize> {
+    (0..81).skip(num).step_by(9)
+}
+
+fn box_num(num: usize) -> impl Iterator<Item = usize> {
+    let row_start = num / 3 * 3;
+    let col_start = num * 3 % 9;
+    let idx_start = row_start * 9 + col_start;
+    (idx_start..)
+        .take(3)
+        .chain(idx_start + 9..)
+        .take(6)
+        .chain(idx_start + 18..)
+        .take(9)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Val {
@@ -38,343 +91,289 @@ impl FromStr for Val {
     }
 }
 
+impl Val {
+    fn all() -> impl Iterator<Item = Self> {
+        vec![
+            Val::One,
+            Val::Two,
+            Val::Three,
+            Val::Four,
+            Val::Five,
+            Val::Six,
+            Val::Seven,
+            Val::Eight,
+            Val::Nine,
+        ]
+        .into_iter()
+    }
+}
+
 impl fmt::Display for Val {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", *self as u32)
     }
 }
 
-impl Val {
-    fn all() -> BTreeSet<Self> {
-        let mut b = BTreeSet::new();
-        b.insert(Val::One);
-        b.insert(Val::Two);
-        b.insert(Val::Three);
-        b.insert(Val::Four);
-        b.insert(Val::Five);
-        b.insert(Val::Six);
-        b.insert(Val::Seven);
-        b.insert(Val::Eight);
-        b.insert(Val::Nine);
-        b
-    }
+#[derive(Default)]
+struct Cell {
+    val: Option<Val>,
+    not: BTreeSet<Val>,
+    row: CellList,
+    col: CellList,
+    r#box: CellList,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Slot {
-    Solved(Val),
-    Unsolved(BTreeSet<Val>),
-}
-
-impl Default for Slot {
-    fn default() -> Self {
-        Slot::Unsolved(Val::all())
-    }
-}
-
-impl fmt::Display for Slot {
+impl fmt::Debug for Cell {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Slot::Solved(v) => write!(f, "{}", v),
-            _ => write!(f, "."),
-        }
+        write!(f, "Cell({:?})", self.val)
     }
 }
 
-impl Slot {
-    fn len(&self) -> usize {
-        if let Slot::Unsolved(vals) = self {
-            vals.len()
-        } else {
-            1
-        }
+impl Cell {
+    fn is_solved(&self) -> bool {
+        self.val.is_some()
     }
 
-    fn contains(&self, val: &Val) -> bool {
-        match self {
-            Slot::Solved(v) => val == v,
-            Slot::Unsolved(vals) => vals.contains(val),
+    fn possible_values(&self) -> BTreeSet<Val> {
+        let mut s = BTreeSet::new();
+
+        if let Some(v) = self.val {
+            s.insert(v);
+            return s;
         }
-    }
 
-    fn difference(&self, other: &Self) -> BTreeSet<Val> {
-        match (self, other) {
-            (Slot::Unsolved(s_vals), Slot::Unsolved(o_vals)) => {
-                s_vals.difference(o_vals).cloned().collect()
-            }
-            (Slot::Unsolved(vals), Slot::Solved(val)) => {
-                let mut out = vals.clone();
-                out.remove(val);
-                out
-            }
-            _ => BTreeSet::new(),
+        s.insert(Val::One);
+        s.insert(Val::Two);
+        s.insert(Val::Three);
+        s.insert(Val::Four);
+        s.insert(Val::Five);
+        s.insert(Val::Six);
+        s.insert(Val::Seven);
+        s.insert(Val::Eight);
+        s.insert(Val::Nine);
+
+        for val in &self.not {
+            s.remove(val);
         }
-    }
 
-    fn union(&self, other: &Self) -> BTreeSet<Val> {
-        match (self, other) {
-            (Slot::Unsolved(s_vals), Slot::Unsolved(o_vals)) => {
-                s_vals.union(o_vals).cloned().collect()
-            }
-            (Slot::Unsolved(vals), _) | (_, Slot::Unsolved(vals)) => vals.clone(),
-            _ => BTreeSet::new(),
-        }
-    }
-
-    fn remove(&mut self, val: &Val) {
-        if let Slot::Unsolved(vals) = self {
-            vals.remove(val);
-        }
-    }
-
-    fn remove_all(&mut self, peer: &Self) {
-        if let Slot::Unsolved(vals) = peer {
-            for val in vals {
-                self.remove(val);
-            }
-        }
-    }
-
-    fn simplify(&mut self) {
-        if let Slot::Unsolved(vals) = self {
-            if vals.len() == 1 {
-                *self = Slot::Solved(*vals.iter().next().unwrap());
-            }
-        }
-    }
-
-    fn replace_with(&mut self, val: Val) {
-        *self = Slot::Solved(val);
-    }
-
-    fn reduce_with_peer(&mut self, peer: &Self) {
-        if let Slot::Solved(v) = peer {
-            self.remove(&v);
-        }
-    }
-}
-
-fn reduce_unit(unit: &[RefCell<&mut Slot>], opt_level: usize) {
-    let scrub_unit = |union: BTreeSet<Val>, skips: &[usize]| {
-        let to_remove = Slot::Unsolved(union);
-        for idx in (0..unit.len()).filter(|i| !skips.contains(i)) {
-            let mut current = unit[idx].borrow_mut();
-            current.remove_all(&to_remove);
-            current.simplify();
-        }
-    };
-
-    for first in 0..unit.len() {
-        // find values which uniquely belong to this space
-        let mut uniqs = Val::all();
+        for peer in self
+            .row
+            .iter()
+            .chain(self.col.iter())
+            .chain(self.r#box.iter())
         {
-            let o = unit[first].borrow();
-            for second in (0..unit.len()).filter(|i| *i != first) {
-                let i = unit[second].borrow();
-                let diff = o.difference(&i);
-                uniqs = uniqs.intersection(&diff).cloned().collect();
-            }
-        }
-        if uniqs.len() == 1 {
-            unit[first]
-                .borrow_mut()
-                .replace_with(uniqs.into_iter().next().unwrap());
-        }
-
-        for second in (0..unit.len()).filter(|i| *i != first) {
-            // remove definitive peers and try to simplify
-            let i = unit[second].borrow();
-            {
-                let mut o = unit[first].borrow_mut();
-                o.reduce_with_peer(&i);
-                o.simplify();
+            if let Some(v) = peer.borrow().val {
+                s.remove(&v);
             }
 
-            if opt_level > 0 {
-                // check for naked pairs
-                let o = unit[first].borrow();
-                if o.len() == 2 && *o == *i {
-                    scrub_unit(o.union(&i), &[first, second]);
-                }
-
-                if opt_level > 1 {
-                    // check for naked triples
-                    for third in (0..unit.len()).filter(|i| ![first, second].contains(i)) {
-                        let t = unit[third].borrow();
-                        let u = Slot::Unsolved(o.union(&i)).union(&t);
-                        if u.len() == 3 {
-                            scrub_unit(u, &[first, second, third]);
-                        }
-
-                        if opt_level > 2 {
-                            // and naked quads
-                            for fourth in
-                                (0..unit.len()).filter(|i| ![first, second, third].contains(i))
-                            {
-                                let f = unit[fourth].borrow();
-                                let u =
-                                    Slot::Unsolved(Slot::Unsolved(o.union(&i)).union(&t)).union(&f);
-                                if u.len() == 4 {
-                                    scrub_unit(u, &[first, second, third, fourth]);
-                                }
-                            }
-                        }
-                    }
-                }
+            if s.is_empty() {
+                panic!("Every cell should have at least one possible value.");
             }
         }
+
+        s
     }
 }
 
-#[derive(Debug, Default)]
-struct Puzzle([[Slot; 9]; 9]);
+type CellList = Vec<Rc<RefCell<Cell>>>;
+
+#[derive(Debug)]
+struct Puzzle(CellList);
+
+impl Default for Puzzle {
+    fn default() -> Self {
+        let mut v = Vec::new();
+        for _ in 0..81 {
+            v.push(Rc::new(RefCell::new(Cell::default())));
+        }
+
+        for (idx, cell) in v.iter().enumerate() {
+            let mut c = cell.borrow_mut();
+
+            for row_idx in idx_to_row(idx) {
+                c.row.push(v[row_idx].clone());
+            }
+
+            for col_idx in idx_to_col(idx) {
+                c.col.push(v[col_idx].clone());
+            }
+
+            for box_idx in idx_to_box(idx) {
+                c.r#box.push(v[box_idx].clone());
+            }
+        }
+
+        Self(v)
+    }
+}
 
 impl FromStr for Puzzle {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut p = Puzzle::default();
-        for (idx, c) in s.split_whitespace().enumerate() {
-            if idx > 80 {
-                return Err("Too many entries provided.");
+        let mut out = Self::default();
+
+        for (idx, tok) in s.split_whitespace().enumerate() {
+            if idx == 81 {
+                return Err("More than 81 tokens provided.");
             }
 
-            if let Ok(v) = c.parse() {
-                p.0[idx / 9][idx % 9] = Slot::Solved(v);
-            }
-        }
-        Ok(p)
-    }
-}
-
-impl fmt::Display for Puzzle {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for (ir, row) in self.0.iter().enumerate() {
-            if ir % 3 == 0 {
-                writeln!(f, "+-------+-------+-------+")?;
-            }
-
-            for (ic, col) in row.iter().enumerate() {
-                if ic % 3 == 0 {
-                    write!(f, "| ")?;
-                }
-
-                write!(f, "{} ", col)?;
-            }
-
-            writeln!(f, "|")?;
+            out.0[idx].borrow_mut().val = tok.parse().ok();
         }
 
-        write!(f, "+-------+-------+-------+")
+        Ok(out)
     }
 }
 
 impl Puzzle {
-    fn is_solved(&self) -> bool {
+    fn solved_count(&self) -> usize {
         self.0
             .iter()
-            .flat_map(|row| row.iter())
-            .all(|c| c.len() == 1)
+            .filter(|cell| cell.borrow().is_solved())
+            .count()
     }
 
-    fn reduce_candidate_lines(&mut self, r_start: usize, c_start: usize) {
-        let mut unsolved = Val::all();
-        for cell in self
-            .0
-            .iter()
-            .skip(r_start)
-            .take(3)
-            .flat_map(|r| r.iter().skip(c_start).take(3))
-        {
-            if let Slot::Solved(v) = cell {
-                unsolved.remove(v);
-            }
-        }
-
-        for val in unsolved {
-            let (mut rows, mut cols) = (BTreeSet::new(), BTreeSet::new());
-
-            for row in r_start..(r_start + 3) {
-                for col in c_start..(c_start + 3) {
-                    if self.0[row][col].contains(&val) {
-                        rows.insert(row);
-                        cols.insert(col);
-                    }
+    fn promote(&mut self) {
+        for cell in &self.0 {
+            let mut cell = cell.borrow_mut();
+            if !cell.is_solved() {
+                let p = cell.possible_values();
+                if p.len() == 1 {
+                    cell.val = p.into_iter().next();
                 }
-            }
-
-            match (rows.len(), cols.len()) {
-                (1, 1) => (), // solved space
-                (1, _) => {
-                    let row_to_purge = rows.into_iter().next().unwrap();
-                    for col in (0..c_start).chain((c_start + 3)..9) {
-                        self.0[row_to_purge][col].remove(&val);
-                    }
-                }
-                (_, 1) => {
-                    let col_to_purge = cols.into_iter().next().unwrap();
-                    for row in (0..r_start).chain((r_start + 3)..9) {
-                        self.0[row][col_to_purge].remove(&val);
-                    }
-                }
-                _ => (),
             }
         }
     }
 
-    fn solve(&mut self) {
-        for cell in self.0.iter_mut().flat_map(|row| row.iter_mut()) {
-            cell.simplify();
-        }
+    fn candidates<I: Iterator<Item = usize>>(&self, indices: I, val: Val) -> Vec<usize> {
+        indices
+            .filter(|&idx| {
+                let c = self.0[idx].borrow();
+                !c.is_solved() && c.possible_values().contains(&val)
+            })
+            .collect()
+    }
+
+    fn try_solve(&mut self) -> Result<usize, usize> {
+        let mut num_solved = self.solved_count();
 
         for iter_num in 0..MAX_ITER {
-            let opt_level = iter_num / 5;
-            for idx in 0..9 {
-                // reduce row
-                let row_v = self.0[idx].iter_mut().map(RefCell::new).collect::<Vec<_>>();
-                reduce_unit(&row_v, opt_level);
+            self.promote();
 
-                // reduce column
-                let col_v = self
-                    .0
-                    .iter_mut()
-                    .flat_map(|r| r.iter_mut().skip(idx).take(1))
-                    .map(RefCell::new)
-                    .collect::<Vec<_>>();
-                reduce_unit(&col_v, opt_level);
+            for val in Val::all() {
+                for unit in 0..9 {
+                    let row_p = self.candidates(row_num(unit), val);
+                    match row_p.len() {
+                        1 => {
+                            self.0[row_p[0]].borrow_mut().val = Some(val);
+                        }
+                        2 | 3 => {
+                            if row_p
+                                .iter()
+                                .cloned()
+                                .map(get_box_num)
+                                .collect::<BTreeSet<_>>()
+                                .len()
+                                == 1
+                            {
+                                for inner_idx in idx_to_box(row_p[0]).filter(|i| !row_p.contains(i))
+                                {
+                                    self.0[inner_idx].borrow_mut().not.insert(val);
+                                }
+                            }
+                        }
+                        _ => (),
+                    }
 
-                // reduce box
-                let (r_start, c_start) = ((idx / 3) * 3, (idx % 3) * 3);
-                let box_v = self
-                    .0
-                    .iter_mut()
-                    .skip(r_start)
-                    .take(3)
-                    .flat_map(|r| r.iter_mut().skip(c_start).take(3))
-                    .map(RefCell::new)
-                    .collect::<Vec<_>>();
-                reduce_unit(&box_v, opt_level);
+                    let col_p = self.candidates(col_num(unit), val);
+                    match col_p.len() {
+                        1 => {
+                            self.0[col_p[0]].borrow_mut().val = Some(val);
+                        }
+                        2 | 3 => {
+                            if col_p
+                                .iter()
+                                .cloned()
+                                .map(get_box_num)
+                                .collect::<BTreeSet<_>>()
+                                .len()
+                                == 1
+                            {
+                                for inner_idx in idx_to_box(col_p[0]).filter(|i| !col_p.contains(i))
+                                {
+                                    self.0[inner_idx].borrow_mut().not.insert(val);
+                                }
+                            }
+                        }
+                        _ => (),
+                    }
 
-                // reduce by candidate lines
-                self.reduce_candidate_lines(r_start, c_start);
+                    let box_p = self.candidates(box_num(unit), val);
+                    match box_p.len() {
+                        1 => {
+                            self.0[box_p[0]].borrow_mut().val = Some(val);
+                        }
+                        2 | 3 => {
+                            if box_p
+                                .iter()
+                                .cloned()
+                                .map(get_row_num)
+                                .collect::<BTreeSet<_>>()
+                                .len()
+                                == 1
+                            {
+                                for inner_idx in idx_to_row(box_p[0]).filter(|i| !box_p.contains(i))
+                                {
+                                    self.0[inner_idx].borrow_mut().not.insert(val);
+                                }
+                            } else if box_p
+                                .iter()
+                                .cloned()
+                                .map(get_col_num)
+                                .collect::<BTreeSet<_>>()
+                                .len()
+                                == 1
+                            {
+                                for inner_idx in idx_to_col(box_p[0]).filter(|i| !box_p.contains(i))
+                                {
+                                    self.0[inner_idx].borrow_mut().not.insert(val);
+                                }
+                            }
+                        }
+                        _ => (),
+                    }
+                }
             }
 
-            if self.is_solved() {
-                eprintln!("Solved in {} iterations!", iter_num);
-                return;
+            self.promote();
+
+            num_solved = self.solved_count();
+
+            if num_solved == 81 {
+                return Ok(iter_num + 1);
             }
         }
 
-        eprintln!("Gave up after {} iterations.", MAX_ITER);
+        Err(num_solved)
     }
 }
 
-fn main() -> io::Result<()> {
-    let mut bufr = String::with_capacity(512);
-    io::stdin().read_to_string(&mut bufr)?;
-    let mut puzzl = bufr.parse::<Puzzle>().unwrap();
-    println!("Start:\n{}", puzzl);
-    puzzl.solve();
-    println!("\nEnd:\n{}", puzzl);
-    Ok(())
+fn main() {
+    let mut buffer = String::with_capacity(512);
+    io::stdin()
+        .read_to_string(&mut buffer)
+        .expect("Could not read to string.");
+    let mut puzzl = buffer.parse::<Puzzle>().unwrap();
+    eprintln!(
+        "Start: {} cells filled in.\n{:#?}",
+        puzzl.solved_count(),
+        puzzl
+    );
+    match puzzl.try_solve() {
+        Ok(iters) => eprintln!("Solved it in {} iterations.\n{:#?}", iters, puzzl),
+        Err(count) => eprintln!(
+            "Couldn't solve it. Only {} cells are solved.\n{:#?}",
+            count, puzzl
+        ),
+    }
 }
