@@ -129,6 +129,16 @@ impl fmt::Debug for Cell {
     }
 }
 
+impl fmt::Display for Cell {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(v) = self.val {
+            write!(f, "{}", v)
+        } else {
+            write!(f, ".")
+        }
+    }
+}
+
 impl Cell {
     fn is_solved(&self) -> bool {
         self.val.is_some()
@@ -222,6 +232,31 @@ impl FromStr for Puzzle {
         }
 
         Ok(out)
+    }
+}
+
+impl fmt::Display for Puzzle {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for row in 0..9 {
+            if row % 3 == 0 {
+                writeln!(f, "+-------+-------+-------+")?;
+            }
+
+            for offset in 0..3 {
+                let sl = &self.0[row * 9 + offset * 3..];
+                write!(
+                    f,
+                    "| {} {} {} ",
+                    sl[0].borrow(),
+                    sl[1].borrow(),
+                    sl[2].borrow()
+                )?;
+            }
+
+            writeln!(f, "|")?;
+        }
+
+        write!(f, "+-------+-------+-------+")
     }
 }
 
@@ -365,15 +400,16 @@ fn main() {
         .expect("Could not read to string.");
     let mut puzzl = buffer.parse::<Puzzle>().unwrap();
     eprintln!(
-        "Start: {} cells filled in.\n{:#?}",
+        "Start: {} cells filled in.\n{}",
         puzzl.solved_count(),
         puzzl
     );
     match puzzl.try_solve() {
-        Ok(iters) => eprintln!("Solved it in {} iterations.\n{:#?}", iters, puzzl),
+        Ok(iters) => eprintln!("Solved it in {} iterations.", iters),
         Err(count) => eprintln!(
-            "Couldn't solve it. Only {} cells are solved.\n{:#?}",
-            count, puzzl
+            "Couldn't solve it in {} iterations. Only {} cells are solved.",
+            MAX_ITER, count
         ),
     }
+    eprintln!("{}", puzzl);
 }
